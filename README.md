@@ -1,151 +1,291 @@
 # CO₂-Sensor (ESP32 → MQTT → Desktop-Overlay)
 
-Ein kleines, bewusst einfach gehaltenes CO₂-Mess-Setup für zuhause:  
-Ein ESP32 liest einen CO₂-Sensor aus und sendet die Werte per WLAN via **MQTT** ins Netzwerk.  
-Auf dem PC läuft ein **Python/Tkinter-Overlay**, das die Daten empfängt, bewertet (Farbampel) und als kleines Always-on-Top-Widget inkl. Power-Verlauf anzeigt.
+A small, deliberately simple CO₂ monitoring setup for home use:  
+An ESP32 reads a CO₂ sensor and transmits values via WiFi using **MQTT** to your network.  
+On your PC, a **Python/Tkinter overlay** receives the data, evaluates it (color-coded indicator), and displays it as a small always-on-top widget including power consumption history.
 
-> Motivation: Bei einem Workshop gab es eine große CO₂-Anzeige – die Idee hat mich sofort gepackt. Seit über einem Jahr läuft diese Version bei mir zuverlässig im Alltag.
+> **Motivation:** At a workshop, there was a large CO₂ display – the idea immediately grabbed me. This version has been running reliably in my daily life for over a year.
 
-![Beispiel: CO₂-Overlay & Sensor](docs/images/setup.png)
+![Example: CO₂ Overlay & Sensor](docs/images/setup.png)
 
 ---
 
 ## Features
 
-- CO₂-Wert (eCO₂) als **ppm** im Overlay
-- **Farbstatus** (grau/orange/rot) abhängig von Schwellenwerten
-- Anzeige zusätzlicher Daten: **Power (W)** von einem Stromzähler-Topic
-- **Verlaufsdiagramm** (aktuell: 8 Stunden bei 10-Minuten-Takt → 48 Punkte)
-- Overlay ist:
-  - immer im Vordergrund (`topmost`)
-  - ohne Fensterrahmen (`overrideredirect`)
-  - mit Transparenzfarbe (Hintergrund „grey“ wird transparent)
+- CO₂ value (eCO₂) displayed as **ppm** in the overlay
+- **Color status** (gray/orange/red) based on configurable thresholds
+- Display of additional data: **Power (W)** from an energy meter MQTT topic
+- **History graph** (currently: 8 hours at 10-minute intervals → 48 data points)
+- Overlay characteristics:
+  - Always on top (`topmost`)
+  - Frameless window (`overrideredirect`)
+  - Transparent background (background color "grey" becomes transparent)
 
 ---
 
-## Komponenten (Hardware)
+## Hardware Components
 
-### Zentraleinheit
-- **ESP32** (günstig, WLAN integriert, genug Rechenleistung)
+### Main Controller
+- **ESP32** (affordable, WiFi built-in, sufficient processing power)
 
-### CO₂-Sensor (Beispiele)
-Alle genannten Sensoren basieren auf NDIR-Technologie und sind für Raumluftmessungen geeignet:
-- Sensirion **SCD30** oder **SCD40**
-- Senseair **S8**
-- **MH‑Z19C**
+### CO₂ Sensors (Supported Examples)
+The following sensors are based on NDIR technology and suitable for indoor air quality measurements:
+- Sensirion **SCD30** or **SCD40** (I²C interface)
+- Senseair **S8** (UART/Modbus interface)
+- **MH-Z19C** (UART interface)
+- **ENS160** (I²C interface - currently used in the included firmware)
 
-> Der C++/ESP32-Code ist in diesem Repo noch nicht enthalten und wird später ergänzt.
-
----
-
-## Architektur / Datenfluss
-
-1. ESP32 misst alle ~2 Sekunden CO₂ (und ggf. Temp/RH).
-2. ESP32 published per MQTT in dein Netzwerk.
-3. PC-Skript `co2.py` subscribed auf die MQTT-Themen, wertet aus und zeigt die Daten im Overlay an.
+### Additional Sensors (in current firmware)
+- **AHT21** (temperature & humidity compensation for ENS160)
+- **SSD1306 OLED display** (128x32 pixels, for local readings)
 
 ---
 
-## MQTT Topics & Payload (aktuell im Python-Code)
+## Architecture / Data Flow
 
-### CO₂
+1. **ESP32** measures CO₂ every ~2 seconds (plus temperature/humidity if available).
+2. **ESP32** publishes data via MQTT to your local network broker.
+3. **PC script** `co2.py` subscribes to the MQTT topics, evaluates the data, and displays it in the overlay widget.
+
+```
+┌─────────────┐         ┌──────────────┐         ┌─────────────────┐
+│   ESP32     │  MQTT   │ MQTT Broker  │  MQTT   │  PC Overlay     │
+│  + Sensor   ├────────►│ (Mosquitto)  ├────────►│  (co2.py)       │
+│  + Display  │ WiFi    │              │         │  Tkinter Widget │
+└─────────────┘         └──────────────┘         └─────────────────┘
+```
+
+---
+
+## MQTT Topics & Payload
+
+### CO₂ Data
 - **Topic:** `sensor/co2`
-- **Payload (JSON):** erwartet mindestens:
+- **Payload (JSON):** Minimum expected format:
   ```json
-  { "eco2": 624 }
+  {
+    "eco2": 624,
+    "temp": 21.5,
+    "humidity": 45,
+    "aqi": 2,
+    "tvoc": 120
+  }
   ```
+  - `eco2`: Equivalent CO₂ in ppm (required)
+  - `temp`: Temperature in °C (optional)
+  - `humidity`: Relative humidity in % (optional)
+  - `aqi`: Air Quality Index 1-5 (optional)
+  - `tvoc`: Total Volatile Organic Compounds in ppb (optional)
 
-### Stromzähler / Leistung (optional)
+### Power/Energy Meter (Optional)
 - **Topic:** `sensor/stromzaehler/SENSOR`
-- **Payload (JSON):** erwartet:
+- **Payload (JSON):**
   ```json
-  { "GS303": { "Power_cur": 50 } }
+  {
+    "GS303": {
+      "Power_cur": 50
+    }
+  }
   ```
+  - `Power_cur`: Current power consumption in Watts
 
-Wenn du andere Topics/Keys nutzt, musst du sie in `on_message()` anpassen.
+**Note:** If you use different topics or JSON keys, adjust them in the `on_message()` function in `co2.py`.
 
 ---
 
-## Installation (PC / Overlay)
+## Installation – PC Overlay
 
-### Voraussetzungen
-- Windows (durch `co2.bat` so vorgesehen; `co2.py` läuft grundsätzlich auch auf anderen OS mit Anpassungen)
-- Python 3.x
-- MQTT Broker erreichbar (z. B. Mosquitto auf NAS/RPi/Server)
+### Prerequisites
+- **Windows** (recommended for included launcher; `co2.py` also works on Linux/macOS with minor adjustments)
+- **Python 3.x**
+- **MQTT Broker** accessible on your network (e.g., Mosquitto on NAS/Raspberry Pi/server)
 
 ### Python Dependencies
-Installiere:
+Install required packages:
 ```bash
 pip install paho-mqtt
 ```
 
-(Tkinter ist bei vielen Python-Installationen bereits dabei.)
+*Note: Tkinter is included with most Python installations. On Linux, you may need to install it separately (e.g., `apt install python3-tk`).*
+
+### Starting the Overlay
+
+#### Method 1: Direct Python Execution
+1. Edit `co2.py` and update the broker IP address:
+   ```python
+   client.connect("192.168.178.151")  # Change to your broker's IP
+   ```
+
+2. Run the script:
+   ```bash
+   python co2.py
+   ```
+
+#### Method 2: Using a Launcher Script (Windows)
+Create a batch file `co2.bat` to start the overlay minimized without a console window:
+```batch
+@echo off
+start /min pythonw.exe "C:\path\to\co2.py"
+```
+
+**Important:** Adjust the path to match your system.
+
+#### Other Operating Systems
+- **Linux/macOS:** Create a shell script or desktop entry to launch `co2.py`
+- Consider adding to startup/autostart for automatic launch on login
 
 ---
 
-## Starten
+## ESP32 Firmware – Build & Upload
 
-### Direkt per Python
-Passe in `co2.py` die Broker-IP an:
-```python
-client.connect("192.168.178.151")
-```
+The ESP32 firmware is located in the **`CO2_ESP32/`** directory and uses **PlatformIO** for building and uploading.
 
-Dann starten:
-```bash
-python co2.py
-```
+### Prerequisites
+- [PlatformIO Core](https://platformio.org/install) or [PlatformIO IDE](https://platformio.org/platformio-ide) (VS Code extension recommended)
+- USB cable for ESP32 programming
 
-### Start per `co2.bat` (Autostart/Shortcut)
-Die BAT startet `pythonw.exe` minimiert (ohne Console).  
-**Wichtig:** Die Pfade sind aktuell hart codiert und müssen auf deinem PC angepasst werden.
+### Quick Start with PlatformIO
+
+1. **Navigate to the firmware directory:**
+   ```bash
+   cd CO2_ESP32
+   ```
+
+2. **Configure WiFi and MQTT settings:**
+   Edit `src/main.cpp` and update the following lines:
+   ```cpp
+   #define WLAN_SSID     "YourWiFiSSID"
+   #define WLAN_PASS     "YourWiFiPassword"
+   #define MQTT_BROKER   "192.168.1.100"  // Your MQTT broker IP
+   #define MQTT_PORT     1883
+   #define MQTT_TOPIC    "sensor/co2"
+   ```
+
+3. **Build the firmware:**
+   ```bash
+   pio run
+   ```
+
+4. **Upload to ESP32:**
+   ```bash
+   pio run --target upload
+   ```
+
+5. **Monitor serial output (optional):**
+   ```bash
+   pio device monitor
+   ```
+
+### Supported Boards
+The current configuration targets `wemos_d1_mini32`. To use a different ESP32 board:
+- Edit `platformio.ini` and change the `board` parameter
+- See [PlatformIO ESP32 boards](https://docs.platformio.org/en/latest/boards/index.html#espressif-32) for options
+
+### Dependencies
+The following libraries are automatically downloaded by PlatformIO (see `platformio.ini`):
+- `Adafruit AHTX0` – Temperature & humidity sensor
+- `ScioSense ENS16x` – ENS160 air quality sensor
+- `Adafruit SSD1306` – OLED display driver
+- `PubSubClient` – MQTT client
 
 ---
 
-## Konfiguration im Code (co2.py)
+## Configuration & Customization
 
-### CO₂-Ampel-Schwellenwerte
+### CO₂ Threshold Levels (in co2.py)
+Adjust the color-coded warning thresholds in `co2.py`:
 ```python
 if eco2_value >= 1100:
-    co2_color = 'red'
+    co2_color = 'red'      # High CO₂ - ventilation needed
 elif eco2_value >= 800:
-    co2_color = 'orange'
+    co2_color = 'orange'   # Moderate CO₂ - monitor
+else:
+    co2_color = 'lightgrey'  # Good air quality
 ```
 
-### Verlauf / Diagramm
-Aktuell:
-- `power_history = [0] * 48` → 48 Werte
-- Kommentar sagt „10min-Takt“, im Code wird aber **bei jedem MQTT-Power-Update** ein Wert angehängt.
+Recommended thresholds:
+- **< 800 ppm:** Good air quality
+- **800-1100 ppm:** Moderate; ventilation recommended
+- **> 1100 ppm:** Poor air quality; immediate ventilation needed
 
-Wenn du wirklich „alle 10 Minuten einen Punkt“ willst, brauchst du entweder:
-- ein Timer-Sampling im Client, oder
-- serverseitige Aggregation (z. B. Node-RED/Telegraf/Influx).
+### Graph History (in co2.py)
+Currently configured for 48 data points:
+```python
+power_history = [0] * 48  # 8h at 10min intervals (48*10min=480min=8h)
+```
+
+**Note:** The current implementation appends a value on every MQTT power update, not at fixed 10-minute intervals. For true time-based sampling, implement:
+- Timer-based sampling in the client, or
+- Server-side aggregation (e.g., Node-RED/Telegraf/InfluxDB)
+
+### BAT Launcher Configuration (Windows)
+If using a `.bat` file for autostart:
+- Update hardcoded paths to match your system
+- Place in Windows Startup folder for automatic launch
+- Use `pythonw.exe` instead of `python.exe` to hide the console window
+
+### Code Adaptation Hints
+- **Different sensors:** Modify `src/main.cpp` to read from your specific sensor (SCD30, S8, MH-Z19C)
+- **Additional data:** Extend the JSON payload in both ESP32 firmware and `co2.py` parsing
+- **Display customization:** Adjust Tkinter widget size, colors, and layout in `co2.py`
 
 ---
 
-## Projektstruktur (empfohlen)
+## Project Structure
 
 ```
-.
-├─ co2.py
-├─ co2.bat
-└─ docs/
-   ├─ DOCUMENTATION.md
-   └─ images/
-      └─ setup.png
+CO2-Sensor/
+├── co2.py                      # Python/Tkinter overlay application
+├── CO2_ESP32/                  # ESP32 firmware (PlatformIO project)
+│   ├── platformio.ini          # PlatformIO configuration
+│   ├── src/
+│   │   └── main.cpp            # Main firmware code (ENS160 + AHT21)
+│   ├── include/                # Header files
+│   ├── lib/                    # Local libraries
+│   └── test/                   # Unit tests
+├── docs/                       # Documentation and resources
+│   └── images/
+│       └── setup.png           # Example setup photo
+└── README.md                   # This file
 ```
 
 ---
 
-## Roadmap / Ideen
+## Roadmap / Future Ideas
 
-- ESP32/C++ Firmware hinzufügen (Sensor-Auslesen, Display, MQTT)
-- Auto-Reconnect / Heartbeat stabiler machen
-- Logging (CSV/InfluxDB)
-- Dynamisches Scaling im Diagramm
-- Konfigurationsdatei (`config.json`) für Broker/Topics/Thresholds
+- [x] Add ESP32/C++ firmware to repository
+- [ ] Improve auto-reconnect and heartbeat stability for MQTT
+- [ ] Add data logging (CSV/InfluxDB/SQLite)
+- [ ] Implement dynamic scaling in the power graph
+- [ ] Create configuration file (`config.json`) for broker/topics/thresholds
+- [ ] Support for multiple sensor types (SCD30, S8, MH-Z19C) with auto-detection
+- [ ] Web-based configuration interface for ESP32
+- [ ] Historical data visualization and trends
+- [ ] Mobile app or web dashboard
+- [ ] Alert notifications (push/email) for high CO₂ levels
 
 ---
 
-## Lizenz
-Noch keine Lizenz festgelegt. (Optional: MIT, Apache-2.0, GPL-3.0, …)
+## Troubleshooting
+
+### Overlay doesn't receive data
+- Check that MQTT broker is running and accessible
+- Verify broker IP address in `co2.py` matches your broker
+- Ensure ESP32 is connected to WiFi and publishing to correct topic
+- Test MQTT connectivity: `mosquitto_sub -h BROKER_IP -t sensor/co2`
+
+### ESP32 won't connect
+- Verify WiFi credentials in `main.cpp`
+- Check serial monitor output for error messages
+- Ensure MQTT broker allows connections from ESP32's IP
+- Check that I²C sensors are properly wired and powered
+
+### Display shows "---" values
+- MQTT connection may not be established
+- Topic name mismatch between ESP32 and `co2.py`
+- JSON payload format doesn't match expected structure
+
+---
+
+## License
+No license specified yet. Consider: MIT, Apache-2.0, GPL-3.0, etc.
