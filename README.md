@@ -93,7 +93,7 @@ The following sensors are based on NDIR technology and suitable for indoor air q
 
 ---
 
-## Installation – PC Overlay
+## Installation - PC Overlay
 
 ### Prerequisites
 - **Windows** (recommended for included launcher; `co2.py` also works on Linux/macOS with minor adjustments)
@@ -136,7 +136,7 @@ start /min pythonw.exe "C:\path\to\co2.py"
 
 ---
 
-## ESP32 Firmware – Build & Upload
+## ESP32 Firmware - Build & Upload
 
 The ESP32 firmware is located in the **`CO2_ESP32/`** directory and uses **PlatformIO** for building and uploading.
 
