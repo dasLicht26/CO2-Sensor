@@ -9,9 +9,9 @@
 
 
 
-#define WLAN_SSID     "BND-area-monitoring-NWO-01917"
-#define WLAN_PASS     "Johapanula220916"
-#define MQTT_BROKER   "192.168.178.151"
+#define WLAN_SSID     {WLAN-SSID}
+#define WLAN_PASS     {WLAN-PW}
+#define MQTT_BROKER   {BROKER-ID}
 #define MQTT_PORT     1883
 #define MQTT_TOPIC    "sensor/co2"
 
@@ -126,3 +126,4 @@ void loop() {
 
   delay(2000);
 }
+
